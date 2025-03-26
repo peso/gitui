@@ -283,6 +283,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install stable Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build current gitui in release mode
+        run: cargo build --release --verbose
+
       - name: Install Homebrew
         run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
@@ -293,5 +301,17 @@ jobs:
       - name: Update Homebrew
         run: brew update
 
-      - name: Run Homebrew Test
-        run: brew test gitui
+      - name: Run Homebrew Test with Current gitui
+        run: |
+          # Find the path to the built gitui executable
+          built_gitui_path=$(pwd)/target/release/gitui
+          echo "Using gitui executable at: $built_gitui_path"
+
+          # Temporarily modify the PATH to prioritize our built executable
+          export PATH="$built_gitui_path:$PATH"
+
+          # Verify that our gitui is picked up (optional)
+          which gitui
+
+          # Run the Homebrew test
+          brew test gitui
