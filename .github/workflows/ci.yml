@@ -314,8 +314,11 @@ jobs:
           # Temporarily modify the PATH to prioritize our built executable
           export PATH="$built_gitui_path:$PATH"
 
-          # Check content of build directory
-          ls $built_gitui_path
+          echo "# Check that path was updated"
+          echo "PATH=$PATH"
+
+          echo "# Check content of build directory"
+          ls -l $built_gitui_path
 
           echo "# Verify that our gitui is picked up (optional)"
           which gitui || echo "gitui not found"
