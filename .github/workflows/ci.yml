@@ -301,6 +301,12 @@ jobs:
       - name: Update Homebrew
         run: brew update
 
+      - name: Homebrew config
+        run: brew config
+
+      - name: Homebrew doctor
+        run: brew doctor
+
       - name: Run Homebrew Test with Current gitui
         run: |
           echo "# Check where the current gitui is located"
