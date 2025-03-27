@@ -303,8 +303,9 @@ jobs:
 
       - name: Run Homebrew Test with Current gitui
         run: |
-          # Check where the current gitui is located
-          which gitui
+          echo "# Check where the current gitui is located"
+          echo "PATH=$PATH"
+          which gitui || echo "gitui not found"
 
           # Find the path to the built gitui executable
           built_gitui_path=$(pwd)/target/release/gitui
@@ -317,7 +318,7 @@ jobs:
           ls $built_gitui_path
 
           echo "# Verify that our gitui is picked up (optional)"
-          which gitui
+          which gitui || echo "gitui not found"
 
           echo "# Run the Homebrew test"
           brew test gitui
