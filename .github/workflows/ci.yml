@@ -13,6 +13,7 @@ env:
 
 jobs:
   build:
+    if: false # Disable while testing "brew test"
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +86,7 @@ jobs:
         ls -l ./target/wix/gitui-win.msi
 
   build-linux-musl:
+    if: false # Disable while testing "brew test"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -131,6 +133,7 @@ jobs:
       run: cargo install --path "." --force --locked
 
   build-linux-arm:
+    if: false # Disable while testing "brew test"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -175,6 +178,7 @@ jobs:
         ls -l ./target/aarch64-unknown-linux-gnu/release/gitui || ls -l ./target/armv7-unknown-linux-gnueabihf/release/gitui || ls -l ./target/arm-unknown-linux-gnueabihf/release/gitui
 
   build-apple-x86:
+    if: false # Disable while testing "brew test"
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -207,6 +211,7 @@ jobs:
         ls -l ./target/x86_64-apple-darwin/release/gitui
 
   linting:
+    if: false # Disable while testing "brew test"
     name: Lints
     runs-on: ubuntu-latest
     steps:
@@ -240,6 +245,7 @@ jobs:
         cargo deny check
 
   udeps:
+    if: false # Disable while testing "brew test"
     name: udeps
     runs-on: ubuntu-latest
     steps:
@@ -262,6 +268,7 @@ jobs:
       run: cargo +nightly udeps --all-targets
 
   log-test:
+    if: false # Disable while testing "brew test"
     name: Changelog Test
     runs-on: ubuntu-latest
     steps:
