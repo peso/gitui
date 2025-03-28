@@ -299,10 +299,10 @@ jobs:
         run: brew update
 
       - name: Homebrew config
-        run: brew config
+        run: brew config || echo "Ignoring exitcode from brew config"
 
       - name: Homebrew doctor
-        run: brew doctor
+        run: brew doctor || echo "Ignoring exitcode from brew doctor"
 
       - name: Fetch local tap for building gitui
         run: git checkout https://github.com/peso/homebrew-core
