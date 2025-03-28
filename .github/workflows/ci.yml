@@ -321,4 +321,4 @@ jobs:
         run: which gitui || echo "gitui not found in PATH"
 
       - name: Run Homebrew Test
-        run: brew test gitui
+        run: brew test peso/core/gitui
