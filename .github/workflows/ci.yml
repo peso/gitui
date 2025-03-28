@@ -315,7 +315,7 @@ jobs:
         run: git clone --depth=1 https://github.com/peso/homebrew-core peso-core
 
       - name: Let homebrew build gitui from source
-        run: brew --head --build-from-source peso-core/Formula/g/gitui
+        run: brew install --head --build-from-source peso-core/Formula/g/gitui
 
       - name: Where is the executable?
         run: which gitui || echo "gitui not found in PATH"
