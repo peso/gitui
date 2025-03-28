@@ -288,9 +288,6 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Build current gitui in release mode
-        run: cargo build --release --verbose
-
       - name: Install Homebrew
         run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
@@ -307,27 +304,14 @@ jobs:
       - name: Homebrew doctor
         run: brew doctor
 
-      - name: Run Homebrew Test with Current gitui
-        run: |
-          echo "# Check where the current gitui is located"
-          echo "PATH=$PATH"
-          which gitui || echo "gitui not found"
+      - name: Fetch local tap for building gitui
+        run: git checkout https://github.com/peso/homebrew-core
 
-          # Find the path to the built gitui executable
-          built_gitui_path=$(pwd)/target/release/gitui
-          echo "Using gitui executable at: $built_gitui_path"
+      - name: Let homebrew build gitui from source
+        run: brew --head --build-from-source homebrew-core/Formula/g/gitui
 
-          # Temporarily modify the PATH to prioritize our built executable
-          export PATH="$built_gitui_path:$PATH"
+      - name: Where is the executable?
+        run: which gitui || echo "gitui not found in PATH"
 
-          echo "# Check that path was updated"
-          echo "PATH=$PATH"
-
-          echo "# Check content of build directory"
-          ls -l $built_gitui_path
-
-          echo "# Verify that our gitui is picked up (optional)"
-          which gitui || echo "gitui not found"
-
-          echo "# Run the Homebrew test"
-          brew test gitui
+      - name: Run Homebrew Test
+        run: brew test gitui
