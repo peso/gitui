@@ -442,7 +442,7 @@ pub mod commit {
 	use crate::keys::SharedKeyConfig;
 
 	pub fn details_author() -> String {
-		"Author: ".to_string()
+		"Forfatter: ".to_string()
 	}
 	pub fn details_committer() -> String {
 		"Committer: ".to_string()
