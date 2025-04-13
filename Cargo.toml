@@ -91,6 +91,7 @@ vendor-openssl = ["asyncgit/vendor-openssl"]
 members = [
     "asyncgit",
     "filetreelist",
+    "git-graph",
     "git2-hooks",
     "git2-testing",
     "scopetime",
