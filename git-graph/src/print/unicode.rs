@@ -33,7 +33,37 @@ const WHITE: u8 = 7;
 const HEAD_COLOR: u8 = 14;
 const HASH_COLOR: u8 = 11;
 
+/// graph-lines, text-lines, start-row
 type UnicodeGraphInfo = (Vec<String>, Vec<String>, Vec<usize>);
+/*
+UnicodeGraphInfo is a type alias for a tuple containing three elements:
+
+1.  `Vec<String>`: This represents the lines of the generated text-based graph
+    visualization. Each `String` in this vector corresponds to a single row of
+    the graph output, containing characters that form the visual representation
+    of the commit history (like lines, dots, and branch intersections).
+
+2.  `Vec<String>`: This represents the lines of the commit messages or other
+    textual information associated with each commit in the graph. Each `String`
+    in this vector corresponds to a line of text that is displayed alongside
+    the graph. This can include commit hashes, author information, commit
+    messages, branch names, and tags, depending on the formatting settings.
+    Some entries in this vector might be empty strings or correspond to
+    inserted blank lines for visual spacing.
+
+3.  `Vec<usize>`: This vector acts as an index map. Each `usize` in this 
+    vector corresponds to the starting row index in the combined output 
+    (graph lines + text lines) for a specific commit in the original 
+    `graph.commits` vector. This allows you to easily find the visual
+    representation and associated text for a given commit by its index in
+    the `graph.commits` data structure. For example, if the `i`-th element
+    of `graph.commits` corresponds to a certain commit, then the `i`-th 
+    element of this `Vec<usize>` will tell you at which row in the combined
+    output that commit's visual representation and text begin. This accounts
+    for potential extra lines inserted for commit messages that wrap or 
+    for spacing.
+*/
+
 
 /// Creates a text-based visual representation of a graph.
 pub fn print_unicode(graph: &GitGraph, settings: &Settings) -> Result<UnicodeGraphInfo, String> {
