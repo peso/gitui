@@ -35,6 +35,7 @@ use std::{
 
 const ELEMENTS_PER_LINE: usize = 9;
 const SLICE_SIZE: usize = 1200;
+const LOG_GRAPH_ENABLED: bool = false;
 
 ///
 pub struct CommitList {
@@ -559,7 +560,27 @@ impl CommitList {
 		Line::from(txt)
 	}
 
+	/// Compute text displayed in commit list at current scroll offset
 	fn get_text(&self, height: usize, width: usize) -> Vec<Line> {
+		if LOG_GRAPH_ENABLED {
+			self.get_text_graph(height, width)
+		}
+		else {
+			self.get_text_no_graph(height, width)
+		}
+	}
+
+	fn get_text_graph(&self, height: usize, width: usize) -> Vec<Line> {
+		let mut txt: Vec<Line> = Vec::with_capacity(height);
+		for _i in 0..height {
+			let mut spans: Vec<Span> = vec![];
+			spans.push(string_width_align("nothing here, move along", width)
+					.into());
+			txt.push(Line::from(spans));
+		}
+		txt
+	}
+	fn get_text_no_graph(&self, height: usize, width: usize) -> Vec<Line> {
 		let selection = self.relative_selection();
 
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
