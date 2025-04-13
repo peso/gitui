@@ -19,6 +19,13 @@ use asyncgit::sync::{
 };
 use chrono::{DateTime, Local};
 use crossterm::event::Event;
+use git_graph::{
+	graph::GitGraph,
+	graph::Repository as Graph_Repository, // A reexport of git2::Repository
+	settings::Settings as Graph_Settings,
+	settings::BranchSettingsDef,
+};
+//use git2::{Repository as Graph_Repository};
 use indexmap::IndexSet;
 use itertools::Itertools;
 use ratatui::{
@@ -44,6 +51,8 @@ pub struct CommitList {
 	selection: usize,
 	highlighted_selection: Option<usize>,
 	items: ItemBatch,
+	/// The cached subset of commits and their graph
+	local_graph: GitGraph,
 	highlights: Option<Rc<IndexSet<CommitId>>>,
 	commits: IndexSet<CommitId>,
 	marked: Vec<(usize, CommitId)>,
@@ -58,9 +67,48 @@ pub struct CommitList {
 	key_config: SharedKeyConfig,
 }
 
+fn default_graph_settings() -> Graph_Settings {
+	use git_graph::print::format::CommitFormat;
+	use git_graph::settings::{BranchOrder, BranchSettings, Characters, MergePatterns};
+
+	let reverse_commit_order = false;
+	let debug = false;
+	let colored = true;
+	let compact = true;
+	let include_remote = false;
+	let format = CommitFormat::OneLine;
+	let wrapping = None;
+	let style = Characters::round();
+
+	Graph_Settings {
+		reverse_commit_order,
+		debug,
+		colored,
+		compact,
+		include_remote,
+		format,
+		wrapping,
+		characters: style,
+		branch_order: BranchOrder::ShortestFirst(true),
+		branches: BranchSettings::from(
+			BranchSettingsDef::git_flow()
+		).expect("Could not use default branch settings git_flow"),
+		merge_patterns: MergePatterns::default(),
+	}
+}
+
 impl CommitList {
 	///
 	pub fn new(env: &Environment, title: &str) -> Self {
+
+		// Open the asyncgit repository as a git2 repository for GitGraph
+		let repo_binding = env.repo.borrow();
+		let repo_path = repo_binding.gitpath();
+        let git2_repo = match Graph_Repository::open(repo_path) {
+            Ok(repo) => repo,
+            Err(e) => panic!("Unable to open git2 repository: {}", e), // Handle this error properly in a real application
+        };
+
 		Self {
 			repo: env.repo.clone(),
 			items: ItemBatch::default(),
@@ -68,6 +116,12 @@ impl CommitList {
 			selection: 0,
 			highlighted_selection: None,
 			commits: IndexSet::new(),
+			local_graph: GitGraph::new(
+				git2_repo,
+				&default_graph_settings(),
+				None,
+				Some(0)
+			).expect("Unable to initialize GitGraph"),
 			highlights: None,
 			scroll_state: (Instant::now(), 0_f32),
 			tags: None,
