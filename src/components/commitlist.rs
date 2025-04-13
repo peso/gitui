@@ -22,6 +22,7 @@ use crossterm::event::Event;
 use git_graph::{
 	graph::GitGraph,
 	graph::Repository as Graph_Repository, // A reexport of git2::Repository
+	print::unicode::print_unicode,
 	settings::Settings as Graph_Settings,
 	settings::BranchSettingsDef,
 };
@@ -42,7 +43,7 @@ use std::{
 
 const ELEMENTS_PER_LINE: usize = 9;
 const SLICE_SIZE: usize = 1200;
-const LOG_GRAPH_ENABLED: bool = false;
+const LOG_GRAPH_ENABLED: bool = true;
 
 ///
 pub struct CommitList {
@@ -52,7 +53,7 @@ pub struct CommitList {
 	highlighted_selection: Option<usize>,
 	items: ItemBatch,
 	/// The cached subset of commits and their graph
-	local_graph: GitGraph,
+	//local_graph: GitGraph,
 	highlights: Option<Rc<IndexSet<CommitId>>>,
 	commits: IndexSet<CommitId>,
 	marked: Vec<(usize, CommitId)>,
@@ -100,7 +101,7 @@ fn default_graph_settings() -> Graph_Settings {
 impl CommitList {
 	///
 	pub fn new(env: &Environment, title: &str) -> Self {
-
+		/*
 		// Open the asyncgit repository as a git2 repository for GitGraph
 		let repo_binding = env.repo.borrow();
 		let repo_path = repo_binding.gitpath();
@@ -108,6 +109,7 @@ impl CommitList {
             Ok(repo) => repo,
             Err(e) => panic!("Unable to open git2 repository: {}", e), // Handle this error properly in a real application
         };
+		*/
 
 		Self {
 			repo: env.repo.clone(),
@@ -116,12 +118,14 @@ impl CommitList {
 			selection: 0,
 			highlighted_selection: None,
 			commits: IndexSet::new(),
+			/*
 			local_graph: GitGraph::new(
 				git2_repo,
 				&default_graph_settings(),
 				None,
 				Some(0)
 			).expect("Unable to initialize GitGraph"),
+			*/
 			highlights: None,
 			scroll_state: (Instant::now(), 0_f32),
 			tags: None,
@@ -624,14 +628,53 @@ impl CommitList {
 		}
 	}
 
-	fn get_text_graph(&self, height: usize, width: usize) -> Vec<Line> {
+	fn get_text_graph(&self, height: usize, _width: usize) -> Vec<Line> {
+		// Fetch visible part of log from repository
+		// TODO Do not build graph every time it is drawn
+		// instead, update self.local_graph cache to hold those needed 
+		// for the current display.
+
+		// Open the asyncgit repository as a git2 repository for GitGraph
+		let repo_binding = self.repo.borrow();
+		let repo_path = repo_binding.gitpath();
+		let git2_repo = match Graph_Repository::open(repo_path) {
+			Ok(repo) => repo,
+			Err(e) => panic!("Unable to open git2 repository: {}", e), // Handle this error properly in a real application
+		};
+		
+		// Find window of commits visible
+		let skip_commmits = self.scroll_top.get();
+		let batch = &self.items;
+		let skip_items = skip_commmits - batch.index_offset();
+		let mut start_rev: String = "HEAD".to_string();
+		if let Some(start_log_entry) = batch.iter().skip(skip_items).next() {
+			start_rev = start_log_entry.id.get_short_string();
+		}
+		let graph_settings = default_graph_settings();
+		let local_graph = GitGraph::new(
+			git2_repo,
+			&graph_settings,
+			Some(start_rev),
+			Some(height)
+		).expect("Unable to initialize GitGraph");
+
+		// Format commits as text
+		let (graph_lines, text_lines, _start_row) 
+			= print_unicode(&local_graph, &graph_settings)
+			.expect("Unable to print GitGraph as unicode");
+
+		// MOCK Format commits as text
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
-		for _i in 0..height {
+		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
-			spans.push(string_width_align("nothing here, move along", width)
-					.into());
+			spans.push(Span::raw(graph_lines[i].clone()));
+			spans.push(Span::raw(text_lines[i].clone()));
+			//spans.push(string_width_align("nothing here, move along", width)
+			//		.into());
 			txt.push(Line::from(spans));
 		}
+
+		// Return lines
 		txt
 	}
 	fn get_text_no_graph(&self, height: usize, width: usize) -> Vec<Line> {
