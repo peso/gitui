@@ -51,17 +51,7 @@ UnicodeGraphInfo is a type alias for a tuple containing three elements:
     Some entries in this vector might be empty strings or correspond to
     inserted blank lines for visual spacing.
 
-3.  `Vec<usize>`: This vector acts as an index map. Each `usize` in this 
-    vector corresponds to the starting row index in the combined output 
-    (graph lines + text lines) for a specific commit in the original 
-    `graph.commits` vector. This allows you to easily find the visual
-    representation and associated text for a given commit by its index in
-    the `graph.commits` data structure. For example, if the `i`-th element
-    of `graph.commits` corresponds to a certain commit, then the `i`-th 
-    element of this `Vec<usize>` will tell you at which row in the combined
-    output that commit's visual representation and text begin. This accounts
-    for potential extra lines inserted for commit messages that wrap or 
-    for spacing.
+3.  `Vec<usize>`: Starting row for commit in the `graph.commits` vector.
 */
 
 
