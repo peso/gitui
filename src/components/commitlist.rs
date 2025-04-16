@@ -630,6 +630,19 @@ impl CommitList {
 
 	fn get_text_graph(&self, height: usize, _width: usize) -> Vec<Line> {
 		// Fetch visible part of log from repository
+		// We have a number of index here
+		// document line = the line number as seen by the user, assuming we 
+		//   are scrolling over a large list of lines. Note that one commit
+		//   may take more than one line to show.
+		// commit index = the number of commits from the youngest commit
+		// screen row = the vertical distance from the top of the view window
+		//
+		// The link between commit index and document line is
+		//   start_row[commit_index] = document line for commit
+		// The link between screen row and document line is
+		//   screen row = document line - scroll top
+
+
 		// TODO Do not build graph every time it is drawn
 		// instead, update self.local_graph cache to hold those needed 
 		// for the current display.
