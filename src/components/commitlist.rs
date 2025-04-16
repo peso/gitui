@@ -49,11 +49,18 @@ const LOG_GRAPH_ENABLED: bool = true;
 pub struct CommitList {
 	repo: RepoPathRef,
 	title: Box<str>,
+
+	 /// Index into self.commits of user cursor
 	selection: usize,
+
+	/// Index into self.highlights, if selection is also a highlight
 	highlighted_selection: Option<usize>,
+
 	items: ItemBatch,
 	/// The cached subset of commits and their graph
-	//local_graph: GitGraph,
+	//local_graph: GitGraph, // TODO store here, once we implement caching
+
+	/// Highlighted commits
 	highlights: Option<Rc<IndexSet<CommitId>>>,
 	commits: IndexSet<CommitId>,
 	/// Commits that are marked. The .0 is used to provide a sort order.
@@ -346,6 +353,7 @@ impl CommitList {
 		self.current_size.get()
 	}
 
+	/// Last valid commit index
 	fn selection_max(&self) -> usize {
 		self.commits.len().saturating_sub(1)
 	}
@@ -445,16 +453,18 @@ impl CommitList {
 		Ok(needs_update)
 	}
 
+	// Toggle mark on selected commit
 	fn mark(&mut self) {
 		if let Some(e) = self.selected_entry() {
 			let id = e.id;
-			let selected = self
+			// Index into self.items.items
+			let selected_item = self
 				.selection
 				.saturating_sub(self.items.index_offset());
 			if self.is_marked(&id).unwrap_or_default() {
 				self.marked.retain(|marked| marked.1 != id);
 			} else {
-				self.marked.push((selected, id));
+				self.marked.push((selected_item, id));
 
 				self.marked.sort_unstable_by(|first, second| {
 					first.0.cmp(&second.0)
@@ -669,11 +679,12 @@ impl CommitList {
 			= print_unicode(&local_graph, &graph_settings)
 			.expect("Unable to print GitGraph as unicode");
 
-		// MOCK Format commits as text
+		// MOCK Always show start of text
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
 			spans.push(Span::raw(graph_lines[i].clone()));
+			spans.push(Span::raw("|"));
 			spans.push(Span::raw(text_lines[i].clone()));
 			txt.push(Line::from(spans));
 		}
@@ -832,6 +843,7 @@ impl CommitList {
 			.is_some_and(|highlights| highlights.contains(&commit))
 	}
 
+	/// Is idx close to reload threshold
 	fn needs_data(&self, idx: usize, idx_max: usize) -> bool {
 		self.items.needs_data(idx, idx_max)
 	}
@@ -897,6 +909,9 @@ impl DrawableComponent for CommitList {
 
 		let height_in_lines = current_size.1 as usize;
 		let selection = self.relative_selection();
+
+		// Figure out if the selection is no longer visible
+		// and the window therefore has to scroll there
 
 		self.scroll_top.set(calc_scroll_top(
 			self.scroll_top.get(),
