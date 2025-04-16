@@ -67,6 +67,7 @@ use keys::KeyConfig;
 use ratatui::backend::CrosstermBackend;
 use scopeguard::defer;
 use scopetime::scope_time;
+use simplelog;
 use spinner::Spinner;
 use std::{
 	cell::RefCell,
@@ -120,10 +121,45 @@ enum Updater {
 	NotifyWatcher,
 }
 
+fn init_log() {
+	const LOG_TO_FILE: bool = true;
+
+	if !LOG_TO_FILE {
+		// Set up log to terminal
+		simplelog::TermLogger::init(
+			simplelog::LevelFilter::Trace,       // Set the log level
+			simplelog::Config::default(),        // Use default log configuration
+			simplelog::TerminalMode::Mixed,      // Output to both stdout and stderr
+			simplelog::ColorChoice::Auto, // Enable colored output if supported
+		)
+		.expect("Failed to initialize logger");
+	} else {
+		// Set up log to file
+		use std::fs::File;
+		let file = File::create("gitui.log").expect("Failed to create log file");
+
+		simplelog::WriteLogger::init(
+			simplelog::LevelFilter::Trace,
+			simplelog::Config::default(),
+			file,
+		)
+		.expect("Failed to initialize logger");
+	}
+
+    // Example log messages
+    log::trace!("This is a trace message.");
+    log::debug!("This is a debug message.");
+    log::info!("This is an info message.");
+    log::warn!("This is a warning.");
+    log::error!("This is an error.");
+}
+
 fn main() -> Result<()> {
 	let app_start = Instant::now();
 
 	let cliargs = process_cmdline()?;
+
+	init_log();
 
 	asyncgit::register_tracing_logging();
 
