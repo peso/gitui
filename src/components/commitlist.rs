@@ -37,13 +37,20 @@ use ratatui::{
 	Frame,
 };
 use std::{
-	borrow::Cow, cell::Cell, cmp, collections::BTreeMap, rc::Rc,
+	ops::Deref,
+	borrow::Cow, 
+	cell::{Cell, RefCell, Ref},
+	cmp, collections::BTreeMap, rc::Rc,
 	time::Instant,
 };
 
+/// Number of Spans to allocate per line
 const ELEMENTS_PER_LINE: usize = 9;
+/// Commits to fetch at a time
 const SLICE_SIZE: usize = 1200;
+/// Feature toggle
 const LOG_GRAPH_ENABLED: bool = true;
+const GRAPH_COLUMN_ENABLED: bool = true;
 
 ///
 pub struct CommitList {
@@ -53,12 +60,14 @@ pub struct CommitList {
 	 /// Index into self.commits of user cursor
 	selection: usize,
 
-	/// Index into self.highlights, if selection is also a highlight
 	highlighted_selection: Option<usize>,
 
 	items: ItemBatch,
-	/// The cached subset of commits and their graph
-	//local_graph: GitGraph, // TODO store here, once we implement caching
+
+	/// Configuration for the graph
+	graph_settings: RefCell<Option<Graph_Settings>>,
+	/// The cached subset of commits in the graph
+	graph_cache: RefCell<Option<GitGraph>>,
 
 	/// Highlighted commits
 	highlights: Option<Rc<IndexSet<CommitId>>>,
@@ -127,14 +136,8 @@ impl CommitList {
 			selection: 0,
 			highlighted_selection: None,
 			commits: IndexSet::new(),
-			/*
-			local_graph: GitGraph::new(
-				git2_repo,
-				&default_graph_settings(),
-				None,
-				Some(0)
-			).expect("Unable to initialize GitGraph"),
-			*/
+			graph_settings: RefCell::new(None),
+			graph_cache: RefCell::new(None),
 			highlights: None,
 			scroll_state: (Instant::now(), 0_f32),
 			tags: None,
@@ -520,8 +523,38 @@ impl CommitList {
 		now: DateTime<Local>,
 		marked: Option<bool>,
 	) -> Line<'a> {
+		self.get_graph_entry_to_add(
+			None, // graph: Option(String),
+			e, //: &'a LogEntry,
+			selected, //: bool,
+			tags, //: Option<String>,
+			local_branches, //: Option<String>,
+			remote_branches,
+			theme, //: &Theme,
+			width, //: usize,
+			now, //: DateTime<Local>,
+			marked) //: Option<bool>,
+	}
+
+	#[allow(clippy::too_many_arguments)]
+	fn get_graph_entry_to_add<'a>(
+		&self,
+		graph: Option<String>,
+		e: &'a LogEntry,
+		selected: bool,
+		tags: Option<String>,
+		local_branches: Option<String>,
+		remote_branches: Option<String>,
+		theme: &Theme,
+		width: usize,
+		now: DateTime<Local>,
+		marked: Option<bool>,
+	) -> Line<'a> {
 		let mut txt: Vec<Span> = Vec::with_capacity(
-			ELEMENTS_PER_LINE + if marked.is_some() { 2 } else { 0 },
+			ELEMENTS_PER_LINE
+			+ if marked.is_some() { 2 } else { 0 }
+			+ if graph.is_some() { 2 } else { 0 }
+			,
 		);
 
 		let normal = !self.items.highlighting()
@@ -547,6 +580,13 @@ impl CommitList {
 				}),
 				theme.log_marker(selected),
 			));
+			txt.push(splitter.clone());
+		}
+
+		// graph
+		if let Some(graph) = graph {
+			// TODO decode escape codes from git-graph
+			txt.push(Span::raw(	Cow::from(graph) ));
 			txt.push(splitter.clone());
 		}
 
@@ -631,10 +671,57 @@ impl CommitList {
 		}
 	}
 
+	// Get a GitGraph instance, either cached or fresh
+	fn get_git_graph(&self) -> Ref<'_, GitGraph> {
+		// Return the cached graph if it exists
+		if self.graph_cache.borrow().is_some() {
+			return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap());
+		}
+
+		// Open the asyncgit repository as a git2 repository for GitGraph
+		let repo_binding = self.repo.borrow();
+		let repo_path = repo_binding.gitpath();
+		let git2_repo = match Graph_Repository::open(repo_path) {
+			Ok(repo) => repo,
+			Err(e) => panic!("Unable to open git2 repository: {}", e), // Handle this error properly in a real application
+		};
+
+		// Create graph settings if missing
+		self.graph_settings
+			.borrow_mut()
+			.get_or_insert_with(default_graph_settings);
+		let ref_graph_settings = self.graph_settings.borrow();
+		let graph_settings = ref_graph_settings.as_ref()
+			.expect("No graph settings present");
+
+		// Find window of commits visible
+		let skip_commmits = self.scroll_top.get();
+		let batch = &self.items;
+		let skip_items = skip_commmits - batch.index_offset();
+		let mut start_rev: String = "HEAD".to_string();
+		if let Some(start_log_entry) = batch.iter().skip(skip_items).next() {
+			start_rev = start_log_entry.id.get_short_string();
+		}
+
+		const GRAPH_COMMIT_COUNT: usize = 200;
+		let git_graph = GitGraph::new(
+			git2_repo,
+			graph_settings,
+			Some(start_rev),
+			Some(GRAPH_COMMIT_COUNT)
+		).expect("Unable to initialize GitGraph");
+
+		// Store the newly created graph in the cache
+		*self.graph_cache.borrow_mut() = Some(git_graph);
+
+		// Return a reference to the cached graph
+		return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap())
+	}
+
 	fn get_text_graph(&self, height: usize, _width: usize) -> Vec<Line> {
 		// Fetch visible part of log from repository
 		// We have a number of index here
-		// document line = the line number as seen by the user, assuming we 
+		// document line = the line number as seen by the user, assuming we
 		//   are scrolling over a large list of lines. Note that one commit
 		//   may take more than one line to show.
 		// commit index = the number of commits from the youngest commit
@@ -645,53 +732,85 @@ impl CommitList {
 		// The link between screen row and document line is
 		//   screen row = document line - scroll top
 
-
-		// TODO Do not build graph every time it is drawn
-		// instead, update self.local_graph cache to hold those needed 
-		// for the current display.
-
-		// Open the asyncgit repository as a git2 repository for GitGraph
-		let repo_binding = self.repo.borrow();
-		let repo_path = repo_binding.gitpath();
-		let git2_repo = match Graph_Repository::open(repo_path) {
-			Ok(repo) => repo,
-			Err(e) => panic!("Unable to open git2 repository: {}", e), // Handle this error properly in a real application
-		};
-		
-		// Find window of commits visible
-		let skip_commmits = self.scroll_top.get();
-		let batch = &self.items;
-		let skip_items = skip_commmits - batch.index_offset();
-		let mut start_rev: String = "HEAD".to_string();
-		if let Some(start_log_entry) = batch.iter().skip(skip_items).next() {
-			start_rev = start_log_entry.id.get_short_string();
-		}
-		let graph_settings = default_graph_settings();
-		let local_graph = GitGraph::new(
-			git2_repo,
-			&graph_settings,
-			Some(start_rev),
-			Some(height)
-		).expect("Unable to initialize GitGraph");
+		let local_graph = self.get_git_graph();
+		let graph_settings_ref = self.graph_settings.borrow();
+		let graph_settings = graph_settings_ref.as_ref()
+			.expect("Missing graph settings");
 
 		// Format commits as text
-		let (graph_lines, text_lines, _start_row) 
-			= print_unicode(&local_graph, &graph_settings)
+		let (graph_lines, text_lines, start_row)
+			= print_unicode(local_graph.deref(), &graph_settings)
 			.expect("Unable to print GitGraph as unicode");
 
-		// MOCK Always show start of text
+		// Convert git-graph text to ratatui text
+ 		let scroll_top_doc_line: usize = self.scroll_top.get();
+		let selection_doc_line: usize = self.selection();
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
-			spans.push(Span::raw(graph_lines[i].clone()));
+
+			let doc_line = scroll_top_doc_line + i;
+
+			// Show selected line in document
+			if doc_line == selection_doc_line {
+				// TODO apply background selection-color to git-graph text
+				spans.push(Span::styled(
+					"-->",
+					self.theme.text(true /*enabled*/, true /*selected*/),
+				));
+			}
+
+			log::trace!("graph_lines[{i}]={}", graph_lines[i]);
+			log::trace!("text_lines[{i}]={}", text_lines[i]);
+
+			if GRAPH_COLUMN_ENABLED {
+				spans.push(Span::raw(
+					if i < graph_lines.len() {
+						graph_lines[i].clone()
+					} else {
+						format!("no graph_lines[{}]", i)
+					}
+				));
+			}
+
 			spans.push(Span::raw("|"));
-			spans.push(Span::raw(text_lines[i].clone()));
+
+			spans.push(Span::raw(
+				if i < text_lines.len() {
+					text_lines[i].clone()
+				} else {
+					format!("no text line at {}", i)
+				}
+			));
+
 			txt.push(Line::from(spans));
 		}
 
 		// Return lines
 		txt
 	}
+	/*
+	fn push_marker(&self, mut& spans: Spans, doc_line: DocLine) {
+		let e = 
+		let marked = if any_marked {
+			self.is_marked(&e.id)
+		} else {
+			None
+		};
+		// marker
+		if let Some(marked) = marked {
+			txt.push(Span::styled(
+				Cow::from(if marked {
+					symbol::CHECKMARK
+				} else {
+					symbol::EMPTY_SPACE
+				}),
+				theme.log_marker(selected),
+			));
+			txt.push(splitter.clone());
+		}
+	}
+	*/
 	fn get_text_no_graph(&self, height: usize, width: usize) -> Vec<Line> {
 		let selection = self.relative_selection();
 
