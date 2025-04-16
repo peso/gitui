@@ -213,7 +213,7 @@ impl HeadInfo {
 pub struct CommitInfo {
     pub oid: Oid,
     pub is_merge: bool,
-    pub parents: [Option<Oid>; 2],
+    pub parents: [Option<Oid>; 2], // TODO change to Vec for octopus merge
     pub children: Vec<Oid>,
     pub branches: Vec<usize>,
     pub tags: Vec<usize>,
