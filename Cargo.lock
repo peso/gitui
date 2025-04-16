@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "gitui"
-version = "0.28.1"
+version = "0.28.1-alpha"
 dependencies = [
  "anyhow",
  "asyncgit",
