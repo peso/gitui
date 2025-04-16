@@ -669,8 +669,6 @@ impl CommitList {
 			let mut spans: Vec<Span> = vec![];
 			spans.push(Span::raw(graph_lines[i].clone()));
 			spans.push(Span::raw(text_lines[i].clone()));
-			//spans.push(string_width_align("nothing here, move along", width)
-			//		.into());
 			txt.push(Line::from(spans));
 		}
 
