@@ -37,6 +37,7 @@ use ratatui::{
 	Frame,
 };
 use std::{
+//	ops::Add,
 	borrow::Cow, cell::Cell, cmp, collections::BTreeMap, rc::Rc,
 	time::Instant,
 };
@@ -45,15 +46,101 @@ const ELEMENTS_PER_LINE: usize = 9;
 const SLICE_SIZE: usize = 1200;
 const LOG_GRAPH_ENABLED: bool = true;
 
+
+
+/*
+
+When navigating commits CommitList has two concepts of address
+- commmit index
+	The commit id of all commits in the repository will be stored
+	in self.commits. The commit index points into this.
+- document line
+    When all commits are formatted there may be a number of lines
+	for each commit. All commits together form a text document.
+	This is an index into the text document. 
+
+Note that the text document is not created, because it would be too
+large for large repositories. All commites are always listed.
+
+The UI shows a window on the text document and the document is created
+on the fly, and discarded when no longer needed. 
+
+Instead of generating lines in the window one at a time, a number of lines
+is generated and stored in a cache. This cache begins before the ui window
+and ends after it, but it only covers the full document on small repo.
+
+A document line is formed from a commit index and an offset into the
+text lines for this particular commit. If the commit is not in the cache,
+the offset will be None.
+
+*/
+
+
+/// Index into CommitList.commits
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct CommitIndex(usize);
+
+impl From<CommitIndex> for usize {
+	fn from(ci: CommitIndex) -> Self {
+		ci.0
+	}	
+}
+
+/// Offset into formatted commit generate by git-graph
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct LineOfs(usize);
+
+impl From<LineOfs> for usize {
+	fn from(ofs: LineOfs) -> Self {
+		ofs.0
+	}	
+}
+
+/// Index into the document that we scroll through.
+/// It has two levels of accuracy: At a commit, or at a line within
+/// a formatted commit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct DocLine {
+	/// Index into CommitList.commits
+	pub commit_index: CommitIndex,
+	/// Index into lines generated for the commit
+	pub line_offset: Option<LineOfs>,
+}
+
+impl DocLine {
+	pub fn at_commit(commit_index: usize) -> Self {
+		Self {
+			commit_index: CommitIndex(commit_index),
+			line_offset: None,
+		}
+	}
+	/*
+	pub fn at_line(commit_index: usize, line_offset: usize) -> Self {
+		Self {
+			commit_index: CommitIndex(commit_index),
+			line_offset: Some(LineOfs(line_offset)),
+		}
+	}
+	*/
+}
+
+
+
+
 ///
 pub struct CommitList {
 	repo: RepoPathRef,
 	title: Box<str>,
-	selection: usize,
+	selection: DocLine, /// Document row of cursor
+
+	/// Index into self.highlights, if selection is also a highlight
 	highlighted_selection: Option<usize>,
+
 	items: ItemBatch,
 	/// The cached subset of commits and their graph
-	//local_graph: GitGraph,
+	//local_graph: GitGraph, // TODO store here, once we implement caching
+
+	/// Highlighted commits
 	highlights: Option<Rc<IndexSet<CommitId>>>,
 	commits: IndexSet<CommitId>,
 	/// Commits that are marked. The .0 is used to provide a sort order.
@@ -64,7 +151,7 @@ pub struct CommitList {
 	local_branches: BTreeMap<CommitId, Vec<BranchInfo>>,
 	remote_branches: BTreeMap<CommitId, Vec<BranchInfo>>,
 	current_size: Cell<Option<(u16, u16)>>,
-	scroll_top: Cell<usize>,
+	scroll_top: Cell<DocLine>,
 	theme: SharedTheme,
 	queue: Queue,
 	key_config: SharedKeyConfig,
@@ -117,7 +204,7 @@ impl CommitList {
 			repo: env.repo.clone(),
 			items: ItemBatch::default(),
 			marked: Vec::with_capacity(2),
-			selection: 0,
+			selection: DocLine::default(),
 			highlighted_selection: None,
 			commits: IndexSet::new(),
 			/*
@@ -134,12 +221,49 @@ impl CommitList {
 			local_branches: BTreeMap::default(),
 			remote_branches: BTreeMap::default(),
 			current_size: Cell::new(None),
-			scroll_top: Cell::new(0),
+			scroll_top: Cell::new(DocLine::default()),
 			theme: env.theme.clone(),
 			queue: env.queue.clone(),
 			key_config: env.key_config.clone(),
 			title: title.into(),
 		}
+	}
+
+	/// The number of lines in the document
+	fn last_docline(&self) -> DocLine {
+		DocLine::at_commit(self.commits.len().saturating_sub(1))
+	} 
+
+	/// Compute a DocLine a number of lines before
+	fn docline_saturating_sub(&self, doc_line: DocLine, ofs: usize) -> DocLine {
+		// TODO If line-formatting is available, do accurate movement
+		// FAKE always do commit-level movement
+		DocLine::at_commit(
+			doc_line.commit_index.0
+			.saturating_sub(ofs))
+	}
+	/// Compute a DocLine a number of lines after
+	fn docline_saturating_add(&self, doc_line: DocLine, ofs: usize) -> DocLine {
+		// TODO If line-formatting is available, do accurate movement
+		// FAKE always do commit-level movement
+		DocLine::at_commit(
+			doc_line.commit_index.0
+			.saturating_add(ofs))
+	}
+
+	/// Find DocLine before current selection
+	fn selection_saturating_sub(&self, ofs: usize) -> DocLine {
+		self.docline_saturating_sub(self.selection, ofs)
+	}
+	/// Find DocLine after current selection
+	fn selection_saturating_add(&self, ofs: usize) -> DocLine {
+		self.docline_saturating_add(self.selection, ofs)
+	}
+
+	/// CommitId of selected commit
+	pub fn selected_commit_id(&self) -> CommitId {
+		let inx: usize = self.selection.commit_index.into();
+		self.commits[inx]
 	}
 
 	///
@@ -165,8 +289,9 @@ impl CommitList {
 
 	///
 	pub fn selected_entry(&self) -> Option<&LogEntry> {
+		let sel_commit_inx: usize = self.selection.commit_index.into();
 		self.items.iter().nth(
-			self.selection.saturating_sub(self.items.index_offset()),
+			sel_commit_inx.saturating_sub(self.items.index_offset()),
 		)
 	}
 
@@ -190,12 +315,14 @@ impl CommitList {
 
 	/// Build string of marked or selected (if none are marked) commit ids
 	fn concat_selected_commit_ids(&self) -> Option<String> {
+		let selection_commit_inx: usize = 
+			self.selection.commit_index.into();
 		match self.marked.as_slice() {
 			[] => self
 				.items
 				.iter()
 				.nth(
-					self.selection
+					selection_commit_inx
 						.saturating_sub(self.items.index_offset()),
 				)
 				.map(|e| e.id.to_string()),
@@ -280,6 +407,9 @@ impl CommitList {
 		let selection = self.selection();
 		let selection_max = self.selection_max();
 
+		let selection = selection.commit_index;
+		let selection_max = selection_max.commit_index;
+
 		if self.needs_data(selection, selection_max) || new_commits {
 			self.fetch_commits(false);
 		}
@@ -310,7 +440,7 @@ impl CommitList {
 		let index = self.commits.get_index_of(&id);
 
 		if let Some(index) = index {
-			self.selection = index;
+			self.selection = DocLine::at_commit(index);
 			self.set_highlighted_selection_index();
 			Ok(())
 		} else {
@@ -329,15 +459,16 @@ impl CommitList {
 	}
 
 	fn set_highlighted_selection_index(&mut self) {
+		let selected_commit_id = self.selected_commit_id();
 		self.highlighted_selection =
 			self.highlights.as_ref().and_then(|highlights| {
 				highlights.iter().position(|entry| {
-					entry == &self.commits[self.selection]
+					*entry == selected_commit_id
 				})
 			});
 	}
 
-	const fn selection(&self) -> usize {
+	const fn selection(&self) -> DocLine {
 		self.selection
 	}
 
@@ -346,8 +477,9 @@ impl CommitList {
 		self.current_size.get()
 	}
 
-	fn selection_max(&self) -> usize {
-		self.commits.len().saturating_sub(1)
+	/// Last document line with content
+	fn selection_max(&self) -> DocLine {
+		self.last_docline()
 	}
 
 	fn selected_entry_marked(&self) -> bool {
@@ -421,18 +553,18 @@ impl CommitList {
 
 		let new_selection = match scroll {
 			ScrollType::Up => {
-				self.selection.saturating_sub(speed_int)
+				self.selection_saturating_sub(speed_int)
 			}
 			ScrollType::Down => {
-				self.selection.saturating_add(speed_int)
+				self.selection_saturating_add(speed_int)
 			}
 			ScrollType::PageUp => {
-				self.selection.saturating_sub(page_offset)
+				self.selection_saturating_sub(page_offset)
 			}
 			ScrollType::PageDown => {
-				self.selection.saturating_add(page_offset)
+				self.selection_saturating_add(page_offset)
 			}
-			ScrollType::Home => 0,
+			ScrollType::Home => DocLine::at_commit(0),
 			ScrollType::End => self.selection_max(),
 		};
 
@@ -445,16 +577,20 @@ impl CommitList {
 		Ok(needs_update)
 	}
 
+	// Toggle mark on selected commit
 	fn mark(&mut self) {
 		if let Some(e) = self.selected_entry() {
 			let id = e.id;
-			let selected = self
-				.selection
+			// Index into self.commits
+			let selected_ci: usize = self
+				.selection.commit_index.into();
+			// Index into self.items.items
+			let selected_item = selected_ci
 				.saturating_sub(self.items.index_offset());
 			if self.is_marked(&id).unwrap_or_default() {
 				self.marked.retain(|marked| marked.1 != id);
 			} else {
-				self.marked.push((selected, id));
+				self.marked.push((selected_item, id));
 
 				self.marked.sort_unstable_by(|first, second| {
 					first.0.cmp(&second.0)
@@ -510,6 +646,7 @@ impl CommitList {
 		now: DateTime<Local>,
 		marked: Option<bool>,
 	) -> Line<'a> {
+		log::trace!("At get_entry_to_add");
 		let mut txt: Vec<Span> = Vec::with_capacity(
 			ELEMENTS_PER_LINE + if marked.is_some() { 2 } else { 0 },
 		);
@@ -649,7 +786,8 @@ impl CommitList {
 		};
 		
 		// Find window of commits visible
-		let skip_commmits = self.scroll_top.get();
+		let skip_commmits: usize =
+			self.scroll_top.get().commit_index.into();
 		let batch = &self.items;
 		let skip_items = skip_commmits - batch.index_offset();
 		let mut start_rev: String = "HEAD".to_string();
@@ -665,15 +803,16 @@ impl CommitList {
 		).expect("Unable to initialize GitGraph");
 
 		// Format commits as text
-		let (graph_lines, text_lines, _start_row) 
+		let (graph_lines, text_lines, start_row) 
 			= print_unicode(&local_graph, &graph_settings)
 			.expect("Unable to print GitGraph as unicode");
 
-		// MOCK Format commits as text
+		// MOCK Always show start of text
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
 			spans.push(Span::raw(graph_lines[i].clone()));
+			spans.push(Span::raw("|"));
 			spans.push(Span::raw(text_lines[i].clone()));
 			txt.push(Line::from(spans));
 		}
@@ -682,7 +821,7 @@ impl CommitList {
 		txt
 	}
 	fn get_text_no_graph(&self, height: usize, width: usize) -> Vec<Line> {
-		let selection = self.relative_selection();
+		let selection_line: usize = self.selection.commit_index.into();
 
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 
@@ -690,13 +829,17 @@ impl CommitList {
 
 		let any_marked = !self.marked.is_empty();
 
+		let skip_commits: usize =
+			self.scroll_top.get().commit_index.into();
+
 		for (idx, e) in self
 			.items
 			.iter()
-			.skip(self.scroll_top.get())
+			.skip(skip_commits)
 			.take(height)
 			.enumerate()
 		{
+			let is_selected: bool = skip_commits + idx == selection_line;
 			let tags =
 				self.tags.as_ref().and_then(|t| t.get(&e.id)).map(
 					|tags| {
@@ -724,7 +867,7 @@ impl CommitList {
 
 			txt.push(self.get_entry_to_add(
 				e,
-				idx + self.scroll_top.get() == selection,
+				is_selected,
 				tags,
 				local_branches,
 				self.remote_branches_string(e),
@@ -782,25 +925,21 @@ impl CommitList {
 		})
 	}
 
-	fn relative_selection(&self) -> usize {
-		self.selection.saturating_sub(self.items.index_offset())
-	}
-
 	fn select_next_highlight(&mut self) {
 		if self.highlights.is_none() {
 			return;
 		}
 
-		let old_selection = self.selection;
+		let old_selection: usize = self.selection.commit_index.into();
 
 		let mut offset = 0;
 		loop {
 			let hit_upper_bound =
-				old_selection + offset > self.selection_max();
+				old_selection + offset > self.selection_max().commit_index.into();
 			let hit_lower_bound = offset > old_selection;
 
 			if !hit_upper_bound {
-				self.selection = old_selection + offset;
+				self.selection = DocLine::at_commit(old_selection + offset);
 
 				if self.selection_highlighted() {
 					break;
@@ -808,7 +947,7 @@ impl CommitList {
 			}
 
 			if !hit_lower_bound {
-				self.selection = old_selection - offset;
+				self.selection = DocLine::at_commit(old_selection - offset);
 
 				if self.selection_highlighted() {
 					break;
@@ -816,7 +955,7 @@ impl CommitList {
 			}
 
 			if hit_lower_bound && hit_upper_bound {
-				self.selection = old_selection;
+				self.selection = DocLine::at_commit(old_selection);
 				break;
 			}
 
@@ -825,15 +964,17 @@ impl CommitList {
 	}
 
 	fn selection_highlighted(&self) -> bool {
-		let commit = self.commits[self.selection];
+		let commit_index: usize = self.selection.commit_index.into();
+		let commit = self.commits[commit_index];
 
 		self.highlights
 			.as_ref()
 			.is_some_and(|highlights| highlights.contains(&commit))
 	}
 
-	fn needs_data(&self, idx: usize, idx_max: usize) -> bool {
-		self.items.needs_data(idx, idx_max)
+	/// Is idx close to reload threshold
+	fn needs_data(&self, idx: CommitIndex, idx_max: CommitIndex) -> bool {
+		self.items.needs_data(idx.0, idx_max.0)
 	}
 
 	// checks if first entry in items is the same commit as we expect
@@ -850,8 +991,9 @@ impl CommitList {
 	}
 
 	fn fetch_commits(&mut self, force: bool) {
-		let want_min =
-			self.selection().saturating_sub(SLICE_SIZE / 2);
+		let selected_ci: usize = self.selection().commit_index.into();
+		let want_min: usize = selected_ci
+			.saturating_sub(SLICE_SIZE / 2);
 		let commits = self.commits.len();
 
 		let want_min = want_min.min(commits);
@@ -896,18 +1038,25 @@ impl DrawableComponent for CommitList {
 		self.current_size.set(Some(current_size));
 
 		let height_in_lines = current_size.1 as usize;
-		let selection = self.relative_selection();
 
-		self.scroll_top.set(calc_scroll_top(
-			self.scroll_top.get(),
+		// Figure out if the selection is no longer visible
+		// and the window therefore has to scroll there
+		//let scroll_top_row = 
+
+		self.scroll_top.set(DocLine::at_commit(calc_scroll_top(
+			self.scroll_top.get().commit_index.into(),
 			height_in_lines,
-			selection,
-		));
+			self.selection.commit_index.into(),
+		)));
 
+		let predecessors_of_selection: usize =
+			self.commits.len().saturating_sub(
+				self.selection.commit_index.into()
+			);
 		let title = format!(
 			"{} {}/{}",
 			self.title,
-			self.commits.len().saturating_sub(self.selection),
+			predecessors_of_selection,
 			self.commits.len(),
 		);
 
@@ -935,8 +1084,8 @@ impl DrawableComponent for CommitList {
 			f,
 			area,
 			&self.theme,
-			self.commits.len(),
-			self.selection,
+			self.selection_max().commit_index.into(),
+			self.selection.commit_index.into(),
 			Orientation::Vertical,
 		);
 
