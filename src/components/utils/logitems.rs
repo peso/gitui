@@ -79,7 +79,7 @@ impl LogEntry {
 	}
 }
 
-///
+/// A subset of commits decoded and ready for printing
 #[derive(Default)]
 pub struct ItemBatch {
 	index_offset: Option<usize>,
@@ -144,7 +144,7 @@ impl ItemBatch {
 		}
 	}
 
-	/// returns `true` if we should fetch updated list of items
+	/// Is idx within reload offset of either top or bottom of commits.
 	pub fn needs_data(&self, idx: usize, idx_max: usize) -> bool {
 		let want_min =
 			idx.saturating_sub(SLICE_OFFSET_RELOAD_THRESHOLD);
