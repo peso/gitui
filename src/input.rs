@@ -50,14 +50,18 @@ impl Input {
 		let arc_current = Arc::clone(&current_state);
 		let arc_aborted = Arc::clone(&aborted);
 
-		thread::spawn(move || {
-			if let Err(e) =
-				Self::input_loop(&arc_desired, &arc_current, &tx)
-			{
-				log::error!("input thread error: {}", e);
-				arc_aborted.store(true, Ordering::SeqCst);
-			}
-		});
+
+		thread::Builder::new()
+			.name("InputLoop".to_string())
+			.spawn(move || {
+				if let Err(e) =
+					Self::input_loop(&arc_desired, &arc_current, &tx)
+				{
+					log::error!("input thread error: {}", e);
+					arc_aborted.store(true, Ordering::SeqCst);
+				}
+			})
+			.expect("Failed to spawn input thread");
 
 		Self {
 			receiver: rx,

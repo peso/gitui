@@ -20,19 +20,25 @@ impl RepoWatcher {
 
 		let workdir = workdir.to_string();
 
-		thread::spawn(move || {
+		thread::Builder::new()
+		.name("WatcherThread".to_string())
+		.spawn(move || {
 			let timeout = Duration::from_secs(2);
 			create_watcher(timeout, tx, &workdir);
-		});
+		})
+		.expect("Failed to spawn thread");
 
 		let (out_tx, out_rx) = unbounded();
 
-		thread::spawn(move || {
+		thread::Builder::new()
+		.name("ForwarderThread".to_string())
+		.spawn(move || {
 			if let Err(e) = Self::forwarder(&rx, &out_tx) {
 				//maybe we need to restart the forwarder now?
 				log::error!("notify receive error: {}", e);
 			}
-		});
+		})
+		.expect("Failed to spawn thread");
 
 		Self { receiver: out_rx }
 	}
