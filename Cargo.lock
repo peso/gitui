@@ -1149,7 +1149,7 @@ checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
 name = "git-graph"
-version = "0.6.0"
+version = "0.6.1-alpha"
 dependencies = [
  "atty",
  "chrono",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "gitui"
-version = "0.27.0"
+version = "0.28.0-alpha"
 dependencies = [
  "anyhow",
  "asyncgit",
