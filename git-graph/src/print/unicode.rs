@@ -81,7 +81,8 @@ pub fn print_unicode(graph: &GitGraph, settings: &Settings) -> Result<UnicodeGra
         None
     };
 
-    // Compute commit text into text_lines
+    // Compute commit text into text_lines and add blank rows
+    // if needed to match branch graph inserts.
     let mut index_map = vec![];
     let mut text_lines = vec![];
     let mut offset = 0;
@@ -418,29 +419,34 @@ fn hline(
     }
 }
 
-/// Calculates required additional rows to visually connect commits that are not direct
-/// descendants in the main commit list. These "inserts" represent the horizontal lines
-/// in the graph.
+/// Calculates required additional rows to visually connect commits that
+/// are not direct descendants in the main commit list. These "inserts"
+//  represent the horizontal lines in the graph.
 ///
 /// # Arguments
 ///
-/// * `graph`: A reference to the `GitGraph` structure containing the commit and branch information.
-/// * `compact`: A boolean indicating whether to use a compact layout, potentially merging some
-///              insertions with commits.
+/// * `graph`: A reference to the `GitGraph` structure containing the
+//             commit and branch information.
+/// * `compact`: A boolean indicating whether to use a compact layout,
+//               potentially merging some insertions with commits.
 ///
 /// # Returns
 ///
-/// A `HashMap` where the keys are the indices of commits in the `graph.commits` vector, and
-/// the values are vectors of vectors of `Occ`. Each inner vector represents a potential row
-/// of insertions needed *before* the commit at the key index. The `Occ` enum describes what
-/// occupies a cell in that row (either a commit or a range representing a connection).
+/// A `HashMap` where the keys are the indices of commits in the
+/// `graph.commits` vector, and the values are vectors of vectors
+/// of `Occ`. Each inner vector represents a potential row of
+/// insertions needed *before* the commit at the key index. The
+/// `Occ` enum describes what occupies a cell in that row
+/// (either a commit or a range representing a connection).
+///
 fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>> {
     // Initialize an empty HashMap to store the required insertions. The key is the commit
     // index, and the value is a vector of rows, where each row is a vector of Occupations (`Occ`).
     let mut inserts: HashMap<usize, Vec<Vec<Occ>>> = HashMap::new();
 
-    // First, for each commit, we initialize an entry in the `inserts` map with a single row
-    // containing the commit itself. This ensures that every commit has a position in the grid.
+    // First, for each commit, we initialize an entry in the `inserts`
+    // map with a single row containing the commit itself. This ensures
+    // that every commit has a position in the grid.
     for (idx, info) in graph.commits.iter().enumerate() {
         // Get the visual column assigned to the branch of this commit. Unwrap is safe here
         // because `branch_trace` should always point to a valid branch with an assigned column
@@ -450,14 +456,12 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
             .column
             .unwrap();
 
-        // For each commit index, create a new entry in the `inserts` map with a vector containing
-        // a single row. This row contains the `Occ::Commit` variant, indicating that at this
-        // index and column, a commit exists.
         inserts.insert(idx, vec![vec![Occ::Commit(idx, column)]]);
     }
 
-    // Now, iterate through the commits again to identify connections needed between parents
-    // that are not directly adjacent in the `graph.commits` list.
+    // Now, iterate through the commits again to identify connections
+    // needed between parents that are not directly adjacent in the
+    // `graph.commits` list.
     for (idx, info) in graph.commits.iter().enumerate() {
         // If the commit has a branch trace (meaning it belongs to a visualized branch).
         if let Some(trace) = info.branch_trace {
@@ -472,11 +476,8 @@ fn get_inserts(graph: &GitGraph, compact: bool) -> HashMap<usize, Vec<Vec<Occ>>>
                 if let Some(par_oid) = info.parents[p] {
                     // Try to find the index of the parent commit in the `graph.commits` vector.
                     if let Some(par_idx) = graph.indices.get(&par_oid) {
-                        // Get the `CommitInfo` for the parent commit.
                         let par_info = &graph.commits[*par_idx];
-                        // Get the `BranchInfo` for the parent commit's branch. Unwrap is safe.
                         let par_branch = &graph.all_branches[par_info.branch_trace.unwrap()];
-                        // Get the visual column of the parent commit's branch. Unwrap is safe.
                         let par_column = par_branch.visual.column.unwrap();
                         // Determine the sorted range of columns between the current commit and its parent.
                         let column_range = sorted(column, par_column);
