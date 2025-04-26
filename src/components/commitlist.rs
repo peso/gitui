@@ -67,6 +67,8 @@ pub struct CommitList {
 
 	/// Configuration for the graph
 	graph_settings: RefCell<Option<Graph_Settings>>,
+	/// Skipped commits for graph cache
+	graph_skip: RefCell<usize>,
 	/// The cached subset of commits in the graph
 	graph_cache: RefCell<Option<GitGraph>>,
 
@@ -82,6 +84,8 @@ pub struct CommitList {
 	remote_branches: BTreeMap<CommitId, Vec<BranchInfo>>,
 	current_size: Cell<Option<(u16, u16)>>,
 	scroll_top: Cell<usize>,
+	/// Number of commits on current page
+	scroll_page: RefCell<usize>,
 	theme: SharedTheme,
 	queue: Queue,
 	key_config: SharedKeyConfig,
@@ -138,6 +142,7 @@ impl CommitList {
 			highlighted_selection: None,
 			commits: IndexSet::new(),
 			graph_settings: RefCell::new(None),
+			graph_skip: RefCell::new(0),
 			graph_cache: RefCell::new(None),
 			highlights: None,
 			scroll_state: (Instant::now(), 0_f32),
@@ -146,6 +151,7 @@ impl CommitList {
 			remote_branches: BTreeMap::default(),
 			current_size: Cell::new(None),
 			scroll_top: Cell::new(0),
+			scroll_page: RefCell::new(0),
 			theme: env.theme.clone(),
 			queue: env.queue.clone(),
 			key_config: env.key_config.clone(),
@@ -427,7 +433,7 @@ impl CommitList {
 		let speed_int = usize::try_from(self.scroll_state.1 as i64)?.max(1);
 
 		let page_offset = usize::from(
-			self.current_size.get().unwrap_or_default().1,
+			*self.scroll_page.borrow()
 		)
 		.saturating_sub(1);
 
@@ -696,9 +702,9 @@ impl CommitList {
 			.expect("No graph settings present");
 
 		// Find window of commits visible
-		let skip_commmits = self.scroll_top.get();
+		let skip_commits = self.scroll_top.get();
 		let batch = &self.items;
-		let skip_items = skip_commmits - batch.index_offset();
+		let skip_items = skip_commits - batch.index_offset();
 		let mut start_rev: String = "HEAD".to_string();
 		if let Some(start_log_entry) = batch.iter().skip(skip_items).next() {
 			start_rev = start_log_entry.id.get_short_string();
@@ -714,6 +720,7 @@ impl CommitList {
 
 		// Store the newly created graph in the cache
 		*self.graph_cache.borrow_mut() = Some(git_graph);
+		*self.graph_skip.borrow_mut() = skip_commits;
 
 		// Return a reference to the cached graph
 		return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap())
@@ -734,6 +741,7 @@ impl CommitList {
 		//   screen row = document line - scroll top
 
 		let local_graph = self.get_git_graph();
+		let graph_skip: usize = *self.graph_skip.borrow();
 		let graph_settings_ref = self.graph_settings.borrow();
 		let graph_settings = graph_settings_ref.as_ref()
 			.expect("Missing graph settings");
@@ -744,13 +752,16 @@ impl CommitList {
 			.expect("Unable to print GitGraph as unicode");
 
 		// Convert git-graph text to ratatui text
- 		let scroll_top_doc_line: usize = self.scroll_top.get();
-		let selection_doc_line: usize = self.selection();
+		let top_graph_ci = self.scroll_top.get() - graph_skip;
+		let top_graph_row = if top_graph_ci < start_row.len() {
+			Some(start_row[top_graph_ci])
+		} else { None };
+
+		let mut graph_ci: usize = top_graph_ci;
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
-
-			let doc_line = scroll_top_doc_line + i;
+			let i_row = top_graph_row.and_then(|row| Some(row + i));
 
 			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
 				Span {
@@ -774,22 +785,26 @@ impl CommitList {
 				}
 			}
 			if GRAPH_COLUMN_ENABLED {
-				if i < graph_lines.len() {
-					append_ansi_text(&mut spans, &graph_lines[i]);
+				if let Some(graph_line) = 
+					i_row.and_then(|row| graph_lines.get(row)) 
+				{
+					append_ansi_text(&mut spans, graph_line);
 				} else {
-					spans.push(Span::raw(
-						format!("no graph_lines[{}]", i)
-					));
+					spans.push(
+						Span::raw(format!("no graph line @{}", graph_ci))
+					);
 				}
 			}
 
 			spans.push(Span::raw("|"));
 
-			if i < text_lines.len() {
-				append_ansi_text(&mut spans, &text_lines[i]);
+			if let Some(text_line) = 
+				i_row.and_then(|row| text_lines.get(row)) 
+			{
+				append_ansi_text(&mut spans, text_line);
 			} else {
 				spans.push(
-					Span::raw(format!("no text line at {}", i))
+					Span::raw(format!("no text line @{}", graph_ci))
 				);
 			}
 
@@ -799,16 +814,32 @@ impl CommitList {
 			);	
 			spans.push(Span::raw(format!("{:unused_space$}", "")));
 
-			// Apply selection background colour
-			if doc_line == selection_doc_line {
+			// Apply selection background colour on selected commit
+			if graph_skip + graph_ci == self.selection {
 				let selection_bg = self.theme.text(true, true).bg.unwrap();
 				for span in &mut spans {
 					span.style = span.style.bg(selection_bg);
 				}
 			}
 
+			// Finish rendering the line
 			txt.push(Line::from(spans));
+			
+			// Find commit for next row
+			let increment_ci = 
+				start_row.get(graph_ci + 1).and_then(|next_ci_row| 
+					i_row.and_then(|i_row|
+						Some(i_row + 1 >= *next_ci_row)
+					)
+				);
+			match increment_ci {
+				Some(true) | None => graph_ci = graph_ci + 1,
+				Some(false) => (),
+			}
 		}
+
+		// Set page size to number of commits rendered
+		*self.scroll_page.borrow_mut() = graph_ci - top_graph_ci;
 
 		// Return lines
 		txt
@@ -1051,6 +1082,8 @@ impl DrawableComponent for CommitList {
 		self.current_size.set(Some(current_size));
 
 		let height_in_lines = current_size.1 as usize;
+		let height_in_commits = (*self.scroll_page.borrow())
+			.max(1);
 		let selection = self.relative_selection();
 
 		// Figure out if the selection is no longer visible
@@ -1058,7 +1091,7 @@ impl DrawableComponent for CommitList {
 
 		self.scroll_top.set(calc_scroll_top(
 			self.scroll_top.get(),
-			height_in_lines,
+			height_in_commits,
 			selection,
 		));
 
