@@ -15,6 +15,7 @@ keywords = ["git", "gui", "cli", "terminal", "ui"]
 build = "build.rs"
 
 [dependencies]
+ansi-to-tui = "7.0.0"
 anyhow = "1.0"
 asyncgit = { path = "./asyncgit", version = "0.27.0", default-features = false }
 backtrace = "0.3"
