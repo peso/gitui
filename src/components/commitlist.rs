@@ -45,7 +45,7 @@ use std::{
 	time::Instant,
 };
 
-/// Columns
+/// Number of Spans to allocate per line
 const ELEMENTS_PER_LINE: usize = 9;
 /// Commits to fetch at a time
 const SLICE_SIZE: usize = 1200;
