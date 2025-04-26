@@ -12,6 +12,7 @@ use crate::{
 	ui::style::{SharedTheme, Theme},
 	ui::{calc_scroll_top, draw_scrollbar, Orientation},
 };
+use ansi_to_tui::IntoText;
 use anyhow::Result;
 use asyncgit::sync::{
 	self, checkout_commit, BranchDetails, BranchInfo, CommitId,
@@ -754,34 +755,52 @@ impl CommitList {
 			// Show selected line in document
 			if doc_line == selection_doc_line {
 				// TODO apply background selection-color to git-graph text
-				spans.push(Span::styled(
-					"-->",
-					self.theme.text(true /*enabled*/, true /*selected*/),
-				));
+				spans.push(Span::raw("-->"));
 			}
 
 			log::trace!("graph_lines[{i}]={}", graph_lines[i]);
 			log::trace!("text_lines[{i}]={}", text_lines[i]);
 
+			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
+				Span {
+					content: Cow::Owned(
+						//remove_ansi_escape_codes(
+							span.content.to_string() 
+						//)
+					),
+					style: span.style.clone(),
+				}
+			}
+			fn append_ansi_text(spans: &mut Vec<Span>, ansi_text: &String) {
+				let text: ratatui::text::Text = ansi_text.as_bytes().into_text().unwrap();
+				log::trace!("append_ansi_text from '{}' to '{}'", 
+					ansi_text, text);
+				if text.lines.len() != 1 {
+					panic!("Converting one line did not return one line");
+				}
+				for span in &text.lines[0] {
+					spans.push(deep_copy_span(span));
+				}
+			}
 			if GRAPH_COLUMN_ENABLED {
-				spans.push(Span::raw(
-					if i < graph_lines.len() {
-						graph_lines[i].clone()
-					} else {
+				if i < graph_lines.len() {
+					append_ansi_text(&mut spans, &graph_lines[i]);
+				} else {
+					spans.push(Span::raw(
 						format!("no graph_lines[{}]", i)
-					}
-				));
+					));
+				}
 			}
 
 			spans.push(Span::raw("|"));
 
-			spans.push(Span::raw(
-				if i < text_lines.len() {
-					text_lines[i].clone()
-				} else {
-					format!("no text line at {}", i)
-				}
-			));
+			if i < text_lines.len() {
+				append_ansi_text(&mut spans, &text_lines[i]);
+			} else {
+				spans.push(
+					Span::raw(format!("no text line at {}", i))
+				);
+			}
 
 			txt.push(Line::from(spans));
 		}
