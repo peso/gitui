@@ -719,7 +719,7 @@ impl CommitList {
 		return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap())
 	}
 
-	fn get_text_graph(&self, height: usize, _width: usize) -> Vec<Line> {
+	fn get_text_graph(&self, height: usize, width: usize) -> Vec<Line> {
 		// Fetch visible part of log from repository
 		// We have a number of index here
 		// document line = the line number as seen by the user, assuming we
@@ -751,15 +751,6 @@ impl CommitList {
 			let mut spans: Vec<Span> = vec![];
 
 			let doc_line = scroll_top_doc_line + i;
-
-			// Show selected line in document
-			if doc_line == selection_doc_line {
-				// TODO apply background selection-color to git-graph text
-				spans.push(Span::raw("-->"));
-			}
-
-			log::trace!("graph_lines[{i}]={}", graph_lines[i]);
-			log::trace!("text_lines[{i}]={}", text_lines[i]);
 
 			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
 				Span {
@@ -800,6 +791,20 @@ impl CommitList {
 				spans.push(
 					Span::raw(format!("no text line at {}", i))
 				);
+			}
+
+			// Fill right side to reach full line length
+			let unused_space = width.saturating_sub(
+				spans.iter().map(|span| span.content.chars().count()).sum(),
+			);	
+			spans.push(Span::raw(format!("{:unused_space$}", "")));
+
+			// Apply selection background colour
+			if doc_line == selection_doc_line {
+				let selection_bg = self.theme.text(true, true).bg.unwrap();
+				for span in &mut spans {
+					span.style = span.style.bg(selection_bg);
+				}
 			}
 
 			txt.push(Line::from(spans));
