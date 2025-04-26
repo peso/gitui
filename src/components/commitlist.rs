@@ -874,8 +874,7 @@ impl CommitList {
 		let mut txt: Vec<Line> = Vec::with_capacity(height);
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
-
-			let doc_line = scroll_top_doc_line + i;
+			let i_doc_line = scroll_top_doc_line + i;
 
 			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
 				Span {
@@ -899,8 +898,8 @@ impl CommitList {
 				}
 			}
 			if GRAPH_COLUMN_ENABLED {
-				if i < graph_lines.len() {
-					append_ansi_text(&mut spans, &graph_lines[i]);
+				if i_doc_line < graph_lines.len() {
+					append_ansi_text(&mut spans, &graph_lines[i_doc_line]);
 				} else {
 					spans.push(Span::raw(
 						format!("no graph_lines[{}]", i)
@@ -910,11 +909,11 @@ impl CommitList {
 
 			spans.push(Span::raw("|"));
 
-			if i < text_lines.len() {
-				append_ansi_text(&mut spans, &text_lines[i]);
+			if i_doc_line < text_lines.len() {
+				append_ansi_text(&mut spans, &text_lines[i_doc_line]);
 			} else {
 				spans.push(
-					Span::raw(format!("no text line at {}", i))
+					Span::raw(format!("no text line at {}", i_doc_line))
 				);
 			}
 
@@ -925,7 +924,7 @@ impl CommitList {
 			spans.push(Span::raw(format!("{:unused_space$}", "")));
 
 			// Apply selection background colour
-			if doc_line == selection_doc_line {
+			if i_doc_line == selection_doc_line {
 				let selection_bg = self.theme.text(true, true).bg.unwrap();
 				for span in &mut spans {
 					span.style = span.style.bg(selection_bg);
