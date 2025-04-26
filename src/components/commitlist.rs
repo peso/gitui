@@ -875,6 +875,32 @@ impl CommitList {
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
 			let i_doc_line = scroll_top_doc_line + i;
+ 
+ 			/*
+ 			let SHOW_MARKER_FEATURE = false;
+ 			// Add a marker column if any commit is marked.
+ 			// Show marker if on first row of commit
+ 			if SHOW_MARKER_FEATURE /* any_marked */ {
+ 				let marked = self.is_marked(commit_id) == std::option::Option(true);
+ 				let is_first_commit_row = start_row[commit_index] == doc_line;
+ 				if marked && is_first_commit_row {
+ 					spans.push(MARK);
+ 				} else {
+ 				 	spans.push(SPACER);
+ 				}
+ 			}
+ 			*/
+ 			/*
+ 			let splitter_txt = Cow::from(symbol::EMPTY_SPACE);
+ 			let splitter = Span::styled(
+ 				splitter_txt,
+ 				if normal {
+ 					theme.text(true, selected)
+ 				} else {
+ 					Style::default()
+ 				},
+ 			);
+ 			*/
 
 			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
 				Span {
