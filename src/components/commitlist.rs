@@ -101,6 +101,26 @@ impl GitGraphCache {
 
 }
 
+fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
+	Span {
+		content: Cow::Owned(span.content.to_string()),
+		style: span.style.clone(),
+	}
+}
+
+/// Convert an ansi colour encoded string from GitGraph to Ratatui Spans
+fn append_ansi_text(spans: &mut Vec<Span>, ansi_text: &String) {
+	let text: ratatui::text::Text = ansi_text.as_bytes().into_text().unwrap();
+	log::trace!("append_ansi_text from '{}' to '{}'", 
+		ansi_text, text);
+	if text.lines.len() != 1 {
+		panic!("Converting one line did not return one line");
+	}
+	for span in &text.lines[0] {
+		spans.push(deep_copy_span(span));
+	}
+}
+
 fn default_graph_settings() -> Graph_Settings {
 	use git_graph::print::format::CommitFormat;
 	use git_graph::settings::{BranchOrder, BranchSettings, Characters, MergePatterns};
@@ -798,28 +818,6 @@ impl CommitList {
  				},
  			);
  			*/
-
-			fn deep_copy_span(span: &Span<'_>) -> Span<'static> {
-				Span {
-					content: Cow::Owned(
-						//remove_ansi_escape_codes(
-							span.content.to_string() 
-						//)
-					),
-					style: span.style.clone(),
-				}
-			}
-			fn append_ansi_text(spans: &mut Vec<Span>, ansi_text: &String) {
-				let text: ratatui::text::Text = ansi_text.as_bytes().into_text().unwrap();
-				log::trace!("append_ansi_text from '{}' to '{}'", 
-					ansi_text, text);
-				if text.lines.len() != 1 {
-					panic!("Converting one line did not return one line");
-				}
-				for span in &text.lines[0] {
-					spans.push(deep_copy_span(span));
-				}
-			}
 			if GRAPH_COLUMN_ENABLED {
 				if let Some(graph_line) = 
 					i_row.and_then(|row| graph_lines.get(row)) 
