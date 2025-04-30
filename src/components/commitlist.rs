@@ -65,12 +65,8 @@ pub struct CommitList {
 
 	items: ItemBatch,
 
-	/// Configuration for the graph
-	graph_settings: RefCell<Option<Graph_Settings>>,
-	/// Skipped commits for graph cache
-	graph_skip: RefCell<usize>,
 	/// The cached subset of commits in the graph
-	graph_cache: RefCell<Option<GitGraph>>,
+	graph_cache: RefCell<GitGraphCache>,
 
 	/// Highlighted commits
 	highlights: Option<Rc<IndexSet<CommitId>>>,
@@ -89,6 +85,20 @@ pub struct CommitList {
 	theme: SharedTheme,
 	queue: Queue,
 	key_config: SharedKeyConfig,
+}
+
+#[derive(Default)]
+struct GitGraphCache {
+	/// Configuration for the graph
+	settings: Option<Graph_Settings>,
+	/// Skipped commits for graph cache
+	skip: usize,
+	/// The cached subset of commits in the graph
+	gitgraph: Option<GitGraph>,
+}
+
+impl GitGraphCache {
+
 }
 
 fn default_graph_settings() -> Graph_Settings {
@@ -141,9 +151,7 @@ impl CommitList {
 			selection: 0,
 			highlighted_selection: None,
 			commits: IndexSet::new(),
-			graph_settings: RefCell::new(None),
-			graph_skip: RefCell::new(0),
-			graph_cache: RefCell::new(None),
+			graph_cache: RefCell::new(GitGraphCache::default()),
 			highlights: None,
 			scroll_state: (Instant::now(), 0_f32),
 			tags: None,
@@ -681,8 +689,9 @@ impl CommitList {
 	// Get a GitGraph instance, either cached or fresh
 	fn get_git_graph(&self) -> Ref<'_, GitGraph> {
 		// Return the cached graph if it exists
-		if self.graph_cache.borrow().is_some() {
-			return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap());
+		if self.graph_cache.borrow().gitgraph.is_some() {
+			return Ref::map(self.graph_cache.borrow(),
+				|cache| cache.gitgraph.as_ref().unwrap());
 		}
 
 		// Open the asyncgit repository as a git2 repository for GitGraph
@@ -694,11 +703,11 @@ impl CommitList {
 		};
 
 		// Create graph settings if missing
-		self.graph_settings
-			.borrow_mut()
+		let mut graph_cache = self.graph_cache.borrow_mut();
+		graph_cache
+			.settings
 			.get_or_insert_with(default_graph_settings);
-		let ref_graph_settings = self.graph_settings.borrow();
-		let graph_settings = ref_graph_settings.as_ref()
+		let graph_settings = graph_cache.settings.as_ref()
 			.expect("No graph settings present");
 
 		// Find window of commits visible
@@ -719,11 +728,12 @@ impl CommitList {
 		).expect("Unable to initialize GitGraph");
 
 		// Store the newly created graph in the cache
-		*self.graph_cache.borrow_mut() = Some(git_graph);
-		*self.graph_skip.borrow_mut() = skip_commits;
+		graph_cache.gitgraph = Some(git_graph);
+		graph_cache.skip = skip_commits;
 
 		// Return a reference to the cached graph
-		return Ref::map(self.graph_cache.borrow(), |cache| cache.as_ref().unwrap())
+		return Ref::map( self.graph_cache.borrow(), 
+			|cache| cache.gitgraph.as_ref().unwrap() )
 	}
 
 	fn get_text_graph(&self, height: usize, width: usize) -> Vec<Line> {
@@ -741,9 +751,9 @@ impl CommitList {
 		//   screen row = document line - scroll top
 
 		let local_graph = self.get_git_graph();
-		let graph_skip: usize = *self.graph_skip.borrow();
-		let graph_settings_ref = self.graph_settings.borrow();
-		let graph_settings = graph_settings_ref.as_ref()
+		let graph_cache = self.graph_cache.borrow();
+		let graph_skip: usize = graph_cache.skip;
+		let graph_settings = graph_cache.settings.as_ref()
 			.expect("Missing graph settings");
 
 		// Format commits as text
@@ -762,7 +772,7 @@ impl CommitList {
 		for i in 0..height {
 			let mut spans: Vec<Span> = vec![];
 			let i_row = top_graph_row.and_then(|row| Some(row + i));
- 
+
  			/*
  			let SHOW_MARKER_FEATURE = false;
  			// Add a marker column if any commit is marked.
