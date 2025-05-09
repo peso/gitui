@@ -1,4 +1,6 @@
-//! asyncgit
+/*!
+ asyncgit KILLROY WAS HERE
+*/
 
 #![forbid(missing_docs)]
 #![deny(
