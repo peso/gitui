@@ -79,6 +79,11 @@ jobs:
       run: |
         otool -L ./target/release/gitui
 
+    - name: Install WiX Toolset (windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install wixtoolset --version=3.11.2
+
     - name: Build MSI (windows)
       if: matrix.os == 'windows-latest'
       run: |
