@@ -977,6 +977,7 @@ mod tests {
 			time: 0,
 			author: String::default(),
 			id: CommitId::default(),
+			parents: vec![],
 		};
 		// This just creates a sequence of fake ordered ids
 		// 0000000000000000000000000000000000000000

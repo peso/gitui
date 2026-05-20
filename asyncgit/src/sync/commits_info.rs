@@ -111,7 +111,8 @@ impl From<CommitId> for gix::ObjectId {
 	}
 }
 
-///
+/// The data gitui stores in memory about a commit. Large repositories
+/// may hold millions and have a major impact on gitui memory usage.
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
 	///
@@ -122,6 +123,8 @@ pub struct CommitInfo {
 	pub author: String,
 	///
 	pub id: CommitId,
+	/// List of parent ids
+	pub parents: Vec<CommitId>,
 }
 
 /// Load information about the requested commits from repository
@@ -151,11 +154,13 @@ pub fn get_commits_info(
 					|| String::from("<unknown>"),
 					String::from,
 				);
+			let parents = c.parent_ids().map(CommitId).collect();
 			CommitInfo {
 				message,
 				author,
 				time: c.time().seconds(),
 				id: CommitId(c.id()),
+				parents,
 			}
 		})
 		.collect::<Vec<_>>();
@@ -185,11 +190,15 @@ pub fn get_commit_info(
 		|signature| signature.name,
 	);
 
+	let parents =
+		commit.parent_ids().map(|id| id.detach().into()).collect();
+
 	Ok(CommitInfo {
 		message,
 		author: author.to_string(),
 		time: commit_ref.time()?.seconds,
 		id: commit.id().detach().into(),
+		parents,
 	})
 }
 
