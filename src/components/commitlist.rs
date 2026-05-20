@@ -8,7 +8,8 @@ use crate::{
 	app::Environment,
 	components::{
 		utils::string_width_align, CommandBlocking, CommandInfo,
-		Component, DrawableComponent, EventState, ScrollType,
+		Component, DrawableComponent, EventState, GraphCache,
+		ScrollType,
 	},
 	keys::{key_match, SharedKeyConfig},
 	queue::{InternalEvent, Queue},
@@ -34,7 +35,11 @@ use ratatui::{
 	Frame,
 };
 use std::{
-	borrow::Cow, cell::Cell, cmp, collections::BTreeMap, rc::Rc,
+	borrow::Cow,
+	cell::{Cell, RefCell},
+	cmp,
+	collections::BTreeMap,
+	rc::Rc,
 	time::Instant,
 };
 
@@ -56,6 +61,9 @@ pub struct CommitList {
 
 	/// Commit information loaded from git
 	items: ItemBatch,
+
+	/// Commit graph related to [items]
+	graph_cache: RefCell<GraphCache>,
 
 	//
 	//  User interface
@@ -85,6 +93,9 @@ impl CommitList {
 	///
 	pub fn new(env: &Environment, title: &str) -> Self {
 		Self {
+			graph_cache: RefCell::new(GraphCache::new(
+				env.repo.clone(),
+			)),
 			repo: env.repo.clone(),
 			items: ItemBatch::default(),
 			marked: Vec::with_capacity(2),
@@ -226,7 +237,7 @@ impl CommitList {
 		}
 	}
 
-	///
+	/// Clear self.items and fetch the commits indicated
 	pub fn set_commits(&mut self, commits: IndexSet<CommitId>) {
 		if commits != self.commits {
 			self.items.clear();
@@ -235,7 +246,7 @@ impl CommitList {
 		}
 	}
 
-	///
+	/// Extend self.commits with the provided commits. Fetch commit info
 	pub fn refresh_extend_data(&mut self, commits: Vec<CommitId>) {
 		let new_commits = !commits.is_empty();
 		self.commits.extend(commits);
@@ -460,6 +471,7 @@ impl CommitList {
 		}
 	}
 
+	/// Format one commit for drawing
 	#[allow(clippy::too_many_arguments)]
 	fn get_entry_to_add<'a>(
 		&self,
@@ -586,6 +598,7 @@ impl CommitList {
 		Line::from(txt)
 	}
 
+	/// Format commits visible inside the component, at the current scroll
 	fn get_text(&self, height: usize, width: usize) -> Vec<Line<'_>> {
 		let selection = self.relative_selection();
 
@@ -627,7 +640,9 @@ impl CommitList {
 				None
 			};
 
-			txt.push(self.get_entry_to_add(
+			let graph_column: Line =
+				self.graph_cache.borrow().get_graph_line(idx);
+			let text_column: Line = self.get_entry_to_add(
 				e,
 				idx + self.scroll_top.get() == selection,
 				tags,
@@ -637,7 +652,13 @@ impl CommitList {
 				width,
 				now,
 				marked,
-			));
+			);
+			txt.push(
+				graph_column
+					.into_iter()
+					.chain(text_column)
+					.collect::<Line>(),
+			);
 		}
 
 		txt
@@ -781,6 +802,7 @@ impl CommitList {
 			);
 
 			if let Ok(commits) = commits {
+				self.graph_cache.borrow_mut().add_commits(&commits);
 				self.items.set_items(
 					want_min,
 					commits,
@@ -807,6 +829,24 @@ impl DrawableComponent for CommitList {
 			height_in_lines,
 			selection,
 		));
+
+		// Update commit graph
+		{
+			// TODO Current code assumes line = commit index
+			// This is wrong as soon as a commit can have multiple lines.
+			// To fix this, we need to rethink scroll_top and line
+			// Maybe a variable scroll_top_ref = (commit inx, offset)
+			// that is updated when the top is calculated and set
+			// The hack would be to only update offset if top commit is multi line
+			// and you scroll up/down one line. For lines on screen we can compute
+			// the accorate commit+offset, for lines outside the screen, assume
+			// every commit is one line.
+			let top = self.scroll_top.get();
+			let visible_range = top..top + height_in_lines;
+			self.graph_cache
+				.borrow_mut()
+				.compute_layout(visible_range);
+		}
 
 		let title = format!(
 			"{} {}/{}",
@@ -923,6 +963,11 @@ mod tests {
 
 	impl Default for CommitList {
 		fn default() -> Self {
+			let repo = RepoPathRef::new(sync::RepoPath::Path(
+				std::path::PathBuf::default(),
+			));
+			let graph_cache =
+				RefCell::new(GraphCache::new(repo.clone()));
 			Self {
 				title: String::new().into_boxed_str(),
 				selection: 0,
@@ -930,6 +975,7 @@ mod tests {
 				highlights: Option::None,
 				tags: Option::None,
 				items: ItemBatch::default(),
+				graph_cache,
 				commits: IndexSet::default(),
 				marked: Vec::default(),
 				scroll_top: Cell::default(),
@@ -939,9 +985,7 @@ mod tests {
 				key_config: SharedKeyConfig::default(),
 				scroll_state: (Instant::now(), 0.0),
 				current_size: Cell::default(),
-				repo: RepoPathRef::new(sync::RepoPath::Path(
-					std::path::PathBuf::default(),
-				)),
+				repo,
 				queue: Queue::default(),
 			}
 		}
