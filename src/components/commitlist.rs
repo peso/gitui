@@ -43,13 +43,29 @@ const SLICE_SIZE: usize = 1200;
 
 ///
 pub struct CommitList {
+	//
+	//  Information about the repository
+	//
+
+	// ---- rustfmt, please preserve blank line above ----
+	/// Location of repository
 	repo: RepoPathRef,
+
+	/// Sequence of commit id for commits loaded from git
+	commits: IndexSet<CommitId>,
+
+	/// Commit information loaded from git
+	items: ItemBatch,
+
+	//
+	//  User interface
+	//
+
+	// ---- rustfmt, please preserve blank line above ----
 	title: Box<str>,
 	selection: usize,
 	highlighted_selection: Option<usize>,
-	items: ItemBatch,
 	highlights: Option<Rc<IndexSet<CommitId>>>,
-	commits: IndexSet<CommitId>,
 	/// The marked commits.
 	/// `self.marked[].0` holds the commit index into `self.items.items` - used for ordering the list.
 	/// `self.marked[].1` is the commit id of the marked commit.
