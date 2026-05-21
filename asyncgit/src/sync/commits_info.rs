@@ -124,7 +124,7 @@ pub struct CommitInfo {
 	pub id: CommitId,
 }
 
-///
+/// Load information about the requested commits from repository
 pub fn get_commits_info(
 	repo_path: &RepoPath,
 	ids: &[CommitId],
@@ -163,7 +163,7 @@ pub fn get_commits_info(
 	Ok(res)
 }
 
-///
+/// Load information about a single commit from repository
 pub fn get_commit_info(
 	repo_path: &RepoPath,
 	commit_id: &CommitId,
