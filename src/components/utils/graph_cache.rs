@@ -47,6 +47,10 @@ pub struct GraphCache {
 	/// Document
 	doc: Option<GraphLines>,
 
+	/// Internal line scroll adjustment so selection is visible.
+	/// This is necessary when some commits use more than one row.
+	row_scroll: usize,
+
 	/// Builder used to incrementally fill topology data from repository.
 	/// Discarded when all commits has been processed.
 	builder: Option<Builder>,
@@ -93,6 +97,7 @@ impl GraphCache {
 			topo,
 			geo: None,
 			doc: None,
+			row_scroll: 0,
 			builder,
 		}
 	}
@@ -116,7 +121,13 @@ impl GraphCache {
 	}
 
 	/// Layout a section of commits
-	pub fn compute_layout(&mut self, commit_range: Range<usize>) {
+	pub fn compute_layout(
+		&mut self,
+		commit_range: Range<usize>,
+		selection: usize,
+	) {
+		let first_commit = commit_range.start;
+		let height_in_lines = commit_range.len(); // Assume caller did top..top+height
 		let track_layout = layout_track_range(
 			&self.topo.borrow(),
 			commit_range,
@@ -136,6 +147,24 @@ impl GraphCache {
 
 		self.geo = Some(track_layout);
 		self.doc = Some(graph_lines);
+
+		// If a commit takes more than one row, then line count and commit count
+		// no longer match. If selection is at the last commit, this will be
+		// off screen. Adjust layout scroll so selection is always visible.
+		//
+		// NOTE: This implementation has the strange effect that an arrow up
+		// will auto-scroll which is probably not what the user expects.
+		let select_layout_commit =
+			selection.saturating_sub(first_commit);
+		self.row_scroll = self
+			.doc
+			.as_ref()
+			.unwrap()
+			.commit2line
+			.get(select_layout_commit)
+			.unwrap_or(&0)
+			.saturating_add(1)
+			.saturating_sub(height_in_lines);
 	}
 
 	/// Get a graph from the specified offset row in layout
@@ -148,5 +177,34 @@ impl GraphCache {
 		let string_to_line = |line: &String| Line::from(line.clone());
 		let default_line = || Line::from("%% no graph data %%");
 		line_ref.map_or_else(default_line, string_to_line)
+	}
+
+	/// First line that should be displayed, if you want the selection
+	/// to be visible.
+	pub fn row_scroll(&self) -> usize {
+		self.row_scroll
+	}
+
+	/// Get the height of a commit in the layout
+	pub fn layout_commit_height(
+		&self,
+		layout_commit: usize,
+	) -> usize {
+		let this_line = self.doc.as_ref().and_then(|graph_lines| {
+			graph_lines.commit2line.get(layout_commit)
+		});
+		let next_line = self.doc.as_ref().and_then(|graph_lines| {
+			graph_lines.commit2line.get(layout_commit + 1)
+		});
+		match (this_line, next_line) {
+			(Some(a), Some(b)) => b - a,
+			(Some(a), None) => {
+				self.doc
+					.as_ref()
+					.map(|gl| gl.graph_lines.len())
+					.unwrap() - a
+			}
+			(None, _) => 0,
+		}
 	}
 }

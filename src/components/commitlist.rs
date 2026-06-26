@@ -606,17 +606,12 @@ impl CommitList {
 
 		let now = Local::now();
 
-		let any_marked = !self.marked.is_empty();
-
-		for (idx, e) in self
-			.items
-			.iter()
-			.skip(self.scroll_top.get())
-			.take(height)
-			.enumerate()
-		{
+		fn tags_branches_marked(
+			this: &CommitList,
+			e: &LogEntry,
+		) -> (Option<String>, Option<String>, Option<bool>) {
 			let tags =
-				self.tags.as_ref().and_then(|t| t.get(&e.id)).map(
+				this.tags.as_ref().and_then(|t| t.get(&e.id)).map(
 					|tags| {
 						tags.iter()
 							.map(|t| format!("<{}>", t.name))
@@ -625,7 +620,7 @@ impl CommitList {
 				);
 
 			let local_branches =
-				self.local_branches.get(&e.id).map(|local_branch| {
+				this.local_branches.get(&e.id).map(|local_branch| {
 					local_branch
 						.iter()
 						.map(|local_branch| {
@@ -634,32 +629,59 @@ impl CommitList {
 						.join(" ")
 				});
 
+			let any_marked = !this.marked.is_empty();
 			let marked = if any_marked {
-				self.is_marked(&e.id)
+				this.is_marked(&e.id)
 			} else {
 				None
 			};
 
-			let graph_column: Line =
-				self.graph_cache.borrow().get_graph_line(idx);
-			let text_column: Line = self.get_entry_to_add(
-				e,
-				idx + self.scroll_top.get() == selection,
-				tags,
-				local_branches,
-				self.remote_branches_string(e),
-				&self.theme,
-				width,
-				now,
-				marked,
-			);
-			txt.push(
-				graph_column
-					.into_iter()
-					.chain(text_column)
-					.collect::<Line>(),
-			);
+			(tags, local_branches, marked)
 		}
+
+		for (idx, e) in self
+			.items
+			.iter()
+			.skip(self.scroll_top.get())
+			.take(height)
+			.enumerate()
+		{
+			// Loop over graph lines pr commit. There may be more than one
+			let commit_height =
+				self.graph_cache.borrow().layout_commit_height(idx);
+			for ofs in 0..commit_height {
+				let current_line = txt.len();
+				let graph_column: Line = self
+					.graph_cache
+					.borrow()
+					.get_graph_line(current_line);
+				let text_column: Line = if ofs == 0 {
+					let (tags, local_branches, marked) =
+						tags_branches_marked(self, e);
+					self.get_entry_to_add(
+						e,
+						idx + self.scroll_top.get() == selection,
+						tags,
+						local_branches,
+						self.remote_branches_string(e),
+						&self.theme,
+						width,
+						now,
+						marked,
+					)
+				} else {
+					Line::from("")
+				};
+				txt.push(
+					graph_column
+						.into_iter()
+						.chain(text_column)
+						.collect::<Line>(),
+				);
+			}
+		}
+		// Apply internal scroll to get selection into the visible area
+		txt.drain(0..self.graph_cache.borrow().row_scroll());
 
 		txt
 	}
@@ -832,20 +854,11 @@ impl DrawableComponent for CommitList {
 
 		// Update commit graph
 		{
-			// TODO Current code assumes line = commit index
-			// This is wrong as soon as a commit can have multiple lines.
-			// To fix this, we need to rethink scroll_top and line
-			// Maybe a variable scroll_top_ref = (commit inx, offset)
-			// that is updated when the top is calculated and set
-			// The hack would be to only update offset if top commit is multi line
-			// and you scroll up/down one line. For lines on screen we can compute
-			// the accorate commit+offset, for lines outside the screen, assume
-			// every commit is one line.
 			let top = self.scroll_top.get();
 			let visible_range = top..top + height_in_lines;
 			self.graph_cache
 				.borrow_mut()
-				.compute_layout(visible_range);
+				.compute_layout(visible_range, self.selection);
 		}
 
 		let title = format!(
