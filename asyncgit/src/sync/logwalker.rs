@@ -23,13 +23,14 @@ impl<'a> LogWalker<'a> {
 	/// Create a new log walker
 	/// with an upper limit on number of commits visited in one batch.
 	pub fn new(repo: &'a Repository, limit: usize) -> Result<Self> {
-		let head = repo.head()?.peel_to_commit()?;
-
 		let mut walk = repo.revwalk()?;
 		// TOPOLOGICAL + TIME guarantees parents come after children,
 		// and ties/independent branches are ordered by timestamp (--date-order).
 		walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)?;
-		walk.push(head.id())?;
+
+		// Push all references (heads, tags, remotes, etc.) into the revision walker.
+		// This corresponds to running "git log --all"
+		walk.push_glob("*")?;
 
 		Ok(Self {
 			walk,
