@@ -1,7 +1,8 @@
 use super::{CommitId, SharedCommitFilterFn};
 use crate::error::Result;
 use git2::{Repository, Revwalk, Sort};
-use gix::revision::Walk;
+use gix::traverse::commit::topo;
+use gix::traverse::commit::Topo;
 
 /// Visit commits in topological order, and date order where possible.
 /// If a filter is provided, only commits that pass the filter are returned.
@@ -94,7 +95,7 @@ impl<'a> LogWalker<'a> {
 /// A more long-term option is to refactor filtering to work with a `gix::Repository` and to remove
 /// `LogWalker` once this is done, but this is a larger effort.
 pub struct LogWalkerWithoutFilter<'a> {
-	walk: Walk<'a>,
+	walk: Topo<&'a gix::Repository, fn(&gix::hash::oid) -> bool>,
 	limit: usize,
 	visited: usize,
 }
@@ -113,12 +114,12 @@ impl<'a> LogWalkerWithoutFilter<'a> {
 
 		let tips = [commit.id];
 
-		let platform = repo
-			.rev_walk(tips)
-			.sorting(gix::revision::walk::Sorting::ByCommitTime(gix::traverse::commit::simple::CommitTimeOrder::NewestFirst))
-			.use_commit_graph(false);
-
-		let walk = platform.all()?;
+		let walk = topo::Builder::new(&*repo)
+			// Show no parents before all of its children are shown,
+			// but otherwise show commits in the commit timestamp order.
+			.sorting(topo::Sorting::DateOrder)
+			.with_tips(tips)
+			.build()?;
 
 		Ok(Self {
 			walk,
