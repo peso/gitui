@@ -111,9 +111,35 @@ impl<'a> LogWalkerWithoutFilter<'a> {
 		// reason this is 2^14, so benchmarking might reveal that there’s better values.
 		repo.object_cache_size_if_unset(2_usize.pow(14));
 
-		let commit = repo.head()?.peel_to_commit()?;
+		// Walk every local branch
+		let mut tips = Vec::new();
+		for ref_result in repo.references()?.local_branches()? {
+			let mut reference = match ref_result {
+				Ok(reference) => reference,
+				Err(err) => {
+					log::warn!("failed to read local branch reference: {err}");
+					continue;
+				}
+			};
 
-		let tips = [commit.id];
+			match reference.peel_to_commit() {
+				Ok(commit) => tips.push(commit.id),
+				Err(err) => {
+					log::warn!("failed to resolve local branch {} to a commit: {}",
+						reference.name().as_bstr(),
+						err,
+					);
+				}
+			}
+		}
+		// .. and HEAD, in case it is detached
+		match repo.head()?.try_peel_to_id() {
+			Ok(Some(id)) => tips.push(id.detach()),
+			Ok(None) => {}
+			Err(err) => {
+				log::warn!("failed to resolve HEAD: {err}");
+			}
+		}
 
 		let walk = topo::Builder::new(&*repo)
 			// Show no parents before all of its children are shown,
