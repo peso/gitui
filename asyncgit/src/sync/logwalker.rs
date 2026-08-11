@@ -140,6 +140,11 @@ impl<'a> LogWalkerWithoutFilter<'a> {
 				log::warn!("failed to resolve HEAD: {err}");
 			}
 		}
+		// Avoid bug in gitoxide that triggers when adding two identical
+		// starting points for the walk.
+		// It is valid for multiple refs to point to the same commit.
+		tips.sort_unstable();
+		tips.dedup();
 
 		let walk = topo::Builder::new(&*repo)
 			// Show no parents before all of its children are shown,
